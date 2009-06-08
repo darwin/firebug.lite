@@ -5,8 +5,10 @@ FBL.ns(function() { with (FBL) {
 // ************************************************************************************************
 // Console
 
-append(ConsoleAPI,
+var ConsoleAPI = 
 {
+    firebug: FBL.version,
+
     log: function()
     {
         return logFormatted(arguments, "");
@@ -43,7 +45,8 @@ append(ConsoleAPI,
             logFormatted(args.length ? args : ["Assertion Failure"], "error");
             throw message ? message : "Assertion Failure";
         }
-        return Console.logID;        
+        
+        return Firebug.Console.LOG_COMMAND;        
     },
     
     dir: function(object)
@@ -84,41 +87,6 @@ append(ConsoleAPI,
         return logRow(html, "dir");
     },
     
-    old_dir: function(object)
-    {
-        var html = [];
-                    
-        var pairs = [];
-        for (var name in object)
-        {
-            try
-            {
-                pairs.push([name, object[name]]);
-            }
-            catch (exc)
-            {
-            }
-        }
-        
-        pairs.sort(function(a, b) { return a[0] < b[0] ? -1 : 1; });
-        
-        html.push('<table>');
-        for (var i = 0; i < pairs.length; ++i)
-        {
-            var name = pairs[i][0], value = pairs[i][1];
-            
-            html.push('<tr>', 
-            '<td class="propertyNameCell"><span class="propertyName">',
-                escapeHTML(name), '</span></td>', '<td><span class="propertyValue">');
-                
-            appendObject(value, html);
-            html.push('</span></td></tr>');
-        }
-        html.push('</table>');
-        
-        return logRow(html, "dir");
-    },
-    
     dirxml: function(node)
     {
         var html = [];
@@ -140,7 +108,7 @@ append(ConsoleAPI,
     time: function(name)
     {
         timeMap[name] = (new Date()).getTime();
-        return Console.logID;
+        return Firebug.Console.LOG_COMMAND;
     },
     
     timeEnd: function(name)
@@ -151,7 +119,7 @@ append(ConsoleAPI,
             logFormatted([name+ ":", delta+"ms"]);
             delete timeMap[name];
         }
-        return Console.logID;
+        return Firebug.Console.LOG_COMMAND;
     },
     
     count: function()
@@ -171,55 +139,50 @@ append(ConsoleAPI,
     
     profileEnd: function()
     {
-        return Console.logID;
+        return Firebug.Console.LOG_COMMAND;
     },
     
     clear: function()
     {
-        consoleBody.innerHTML = "";
-        return Console.logID;
+        fbConsole.innerHTML = "";
+        return Firebug.Console.LOG_COMMAND;
     },
 
     open: function()
     {
         toggleConsole(true);
-        return Console.logID;
+        return Firebug.Console.LOG_COMMAND;
     },
     
     close: function()
     {
         if (frameVisible)
             toggleConsole();
-        return Console.logID;
+        return Firebug.Console.LOG_COMMAND;
     }
-});
-
-
-// ********************************************************************************************
-
-var consoleFrame = null;
-var consoleBody = null;
-var commandLine = null;
-
-var frameVisible = false;
-var messageQueue = [];
-var groupStack = [];
-var timeMap = {};
-
-var clPrefix = ">>> ";
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
-
+};
 
 
 // ************************************************************************************************
 // Console Module
 
-var Console = Firebug.Console = extend(ConsoleAPI,
+var ConsoleModule = extend(Firebug.Module, ConsoleAPI);
+
+Firebug.Console = extend(ConsoleModule,
 {
 
-    logID: "(_____FIREBUG_LOG_____)",
+    LOG_COMMAND: {},
 
+    initialize: function(){
+        fbConsole = $("fbConsole");
+        fbPanel1 =  $("fbPanel1");       
+    },
+    
+    shutdown: function()
+    {
+        fbConsole = null;
+        fbPanel1 =  null;     
+    },
     
     returnDir: function(object)
     {
@@ -256,55 +219,64 @@ var Console = Firebug.Console = extend(ConsoleAPI,
         return html;
     }
 });
+
+Firebug.registerModule(Firebug.Console);
+
+
+// ************************************************************************************************
+// Console Panel
+
+var ConsolePanel = function ConsolePanel(){};
+
+ConsolePanel.prototype = extend(Firebug.Panel,
+{
+    initialize: function(){
+        fbConsole = $("fbConsole");
+        fbPanel1 =  $("fbPanel1");       
+    },
     
+    shutdown: function()
+    {
+        fbConsole = null;
+        fbPanel1 =  null;     
+    }
+    
+});
+
+
+// ********************************************************************************************
+
+var fbConsole = null;
+var fbPanel1 = null;
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+Firebug.cache.messageQueue = [];
+var groupStack = [];
+var timeMap = {};
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
 
 
 // ********************************************************************************************
 
-function focusCommandLine()
-{
-    toggleConsole(true);
-    if (commandLine)
-        commandLine.focus();
-};
-
-function evalCommandLine()
-{
-    var text = commandLine.value;
-    commandLine.value = "";
-
-    logRow([clPrefix, text], "command");
-    
-    var value;
-    try
-    {
-        value = eval(text);
-    }
-    catch (exc)
-    {
-    }
-
-    console.log(value);
-};
-
 FBL.logRow = function(message, className, handler)
 {
-    if (consoleBody)
+    if (fbConsole)
         writeMessage(message, className, handler);
     else
     {
-        messageQueue.push([message, className, handler]);
-        waitForDocument();
+        Firebug.cache.messageQueue.push([message, className, handler]);
     }
     
-    return Console.logID;
+    return Firebug.Console.LOG_COMMAND;
 };
 
 FBL.flush = function()
 {
-    var queue = messageQueue;
-    messageQueue = [];
+    var queue = Firebug.cache.messageQueue;
+    Firebug.cache.messageQueue = [];
     
     for (var i = 0; i < queue.length; ++i)
         writeMessage(queue[i][0], queue[i][1], queue[i][2]);
@@ -312,10 +284,8 @@ FBL.flush = function()
 
 FBL.writeMessage = function(message, className, handler)
 {
-    //var consoleFrame = consoleBodyFrame.offsetParent; 
-    var consoleFrame = consoleBodyFrame; 
     var isScrolledToBottom =
-        consoleFrame.scrollTop + consoleFrame.offsetHeight >= consoleFrame.scrollHeight;
+        fbPanel1.scrollTop + fbPanel1.offsetHeight >= fbPanel1.scrollHeight;
 
     if (!handler)
         handler = writeRow;
@@ -323,18 +293,18 @@ FBL.writeMessage = function(message, className, handler)
     handler(message, className);
     
     if (isScrolledToBottom)
-        consoleFrame.scrollTop = consoleFrame.scrollHeight - consoleFrame.offsetHeight;
+        fbPanel1.scrollTop = fbPanel1.scrollHeight - fbPanel1.offsetHeight;
 };
 
 FBL.appendRow = function(row)
 {
-    var container = groupStack.length ? groupStack[groupStack.length-1] : consoleBody;
+    var container = groupStack.length ? groupStack[groupStack.length-1] : fbConsole;
     container.appendChild(row);
 };
 
 FBL.writeRow = function(message, className)
 {
-    var row = consoleBody.ownerDocument.createElement("div");
+    var row = fbConsole.ownerDocument.createElement("div");
     row.className = "logRow" + (className ? " logRow-"+className : "");
     row.innerHTML = message.join("");
     appendRow(row);
@@ -344,9 +314,9 @@ FBL.pushGroup = function(message, className)
 {
     logFormatted(message, className);
 
-    var groupRow = consoleBody.ownerDocument.createElement("div");
+    var groupRow = fbConsole.ownerDocument.createElement("div");
     groupRow.className = "logGroup";
-    var groupRowBox = consoleBody.ownerDocument.createElement("div");
+    var groupRowBox = fbConsole.ownerDocument.createElement("div");
     groupRowBox.className = "logGroupBox";
     groupRow.appendChild(groupRowBox);
     appendRow(groupRowBox);
@@ -451,6 +421,15 @@ FBL.onError = function(msg, href, lineNo)
     
     logRow(html, "error");
 };
+
+
+// ********************************************************************************************
+// Register console API
+
+var alternateNS = "FB";
+var consoleNS = "console";
+var namespace = isFirefox ? alternateNS : consoleNS;
+application.global[namespace] = ConsoleAPI;
 
 
 // ************************************************************************************************

@@ -7,9 +7,30 @@ var Console = Firebug.Console;
 // ************************************************************************************************
 // CommandLine
 
-var CommandLine = Firebug.CommandLine = 
+
+Firebug.CommandLine = function(element)
 {
-    _cmdElement: null,
+    this.element = element;
+    
+    if (isOpera)
+      fixOperaTabKey(this.element);
+    
+    this.onKeyDown = bind(this, this.onKeyDown);
+    addEvent(this.element, "keydown", this.onKeyDown);
+    
+    //FBL.application.global.onerror = this.onError;
+    var self = this
+    application.global.onerror = function(){self.onError.apply(self, arguments)};
+
+    //application.global.onerror = this.onError;
+    window.onerror = this.onError;
+    
+    initializeCommandLineAPI();
+};
+
+Firebug.CommandLine.prototype = 
+{
+    element: null,
   
     _buffer: [],
     _bi: -1,
@@ -42,17 +63,18 @@ var CommandLine = Firebug.CommandLine =
     
     initialize: function(doc)
     {
-        initializeCommandLineAPI();
-
-        this._cmdElement = doc.getElementById("commandLine");
-        
-        addEvent(this._cmdElement, "keydown", this.onKeyDown);
-        window.onerror = this.onError;
+    },
+    
+    destroy: function()
+    {
+        removeEvent(this.element, "keydown", this.onKeyDown);
+        window.onerror = null;
+        this.element = null
     },
 
     execute: function()
     {
-        var cmd = this._cmdElement;
+        var cmd = this.element;
         var command = cmd.value;
         
         this._stack(command);
@@ -64,7 +86,7 @@ var CommandLine = Firebug.CommandLine =
             var result = this.evaluate(command);
             // evita que seja repetido o log, caso o comando executado
             // j� seja um log via linha de comando
-            if (result != Console.logID)
+            if (result != Console.LOG_COMMAND)
             {
                 var html = [];
                 appendObject(result, html)
@@ -82,16 +104,20 @@ var CommandLine = Firebug.CommandLine =
     
     evaluate: function(expr)
     {
-      //var cmd = "with(window){ (function() { return " + expr + " \n}).apply(window); }";
-      var cmd = "(function() { with(FBL.CommandLineAPI){ return " + expr + " } }).apply(window)";
-      return this.eval(cmd);
+        // TODO: need to register the API in console.firebug.commandLineAPI
+        var api = "FBL.Firebug.CommandLine.API"
+            
+        //Firebug.context = Firebug.chrome;
+        api = null;
+
+        return Firebug.context.evaluate(expr, "window", api, Console.error);
     },
     
     eval: new Function("return window.eval.apply(window, arguments)"),
     
     prevCommand: function()
     {
-        var cmd = this._cmdElement;
+        var cmd = this.element;
         var buffer = this._buffer;
         
         if (this._bi > 0 && buffer.length > 0)
@@ -100,7 +126,7 @@ var CommandLine = Firebug.CommandLine =
   
     nextCommand: function()
     {
-        var cmd = this._cmdElement;
+        var cmd = this.element;
         
         var buffer = this._buffer;
         var limit = buffer.length -1;
@@ -118,7 +144,7 @@ var CommandLine = Firebug.CommandLine =
   
     autocomplete: function(reverse)
     {
-        var cmd = this._cmdElement;
+        var cmd = this.element;
         
         var command = cmd.value;
         var offset = getExpressionOffset(command);
@@ -236,7 +262,7 @@ var CommandLine = Firebug.CommandLine =
     
     clear: function()
     {
-        CommandLine._cmdElement.value = "";
+        this.element.value = "";
     },
     
     onKeyDown: function(e)
@@ -247,22 +273,22 @@ var CommandLine = Firebug.CommandLine =
         
         /*tab, shift, control, alt*/
         if (code != 9 && code != 16 && code != 17 && code != 18)
-            CommandLine._completing = false;
+            this._completing = false;
     
         if (code == 13 /* enter */)
-            CommandLine.execute();
+            this.execute();
 
         else if (code == 27 /* ESC */)
-            setTimeout(CommandLine.clear, 0);
+            setTimeout(this.clear, 0);
           
         else if (code == 38 /* up */)
-            CommandLine.prevCommand();
+            this.prevCommand();
           
         else if (code == 40 /* down */)
-            CommandLine.nextCommand();
+            this.nextCommand();
           
         else if (code == 9 /* tab */)
-            CommandLine.autocomplete(e.shiftKey);
+            this.autocomplete(e.shiftKey);
           
         else
             return;
@@ -272,55 +298,9 @@ var CommandLine = Firebug.CommandLine =
     }
 };
 
-Firebug.CommandLine.API =
-{
-    $: function(id)
-    {
-        return document.getElementById(id)
-    },
 
-    $$: Firebug.Selector,
-    
-    dir: ConsoleAPI.dir,
-
-    dirxml: ConsoleAPI.dirxml
-}
-
-FBL.CommandLineAPI = {};
-function initializeCommandLineAPI()
-{
-    var api = FBL.Firebug.CommandLine.API;
-    for (var m in api)
-        if (!window[m])
-            FBL.CommandLineAPI[m] = api[m];
-}
-    
-
-
-/*
-OPERA TAB bug
-function handleBlur(e) {
-  if (this.lastKey == 9)
-    this.focus();
-}
-
-function handleKeyDown(e) {
-  this.lastKey = e.keyCode;
-}
-
-function handleFocus(e) {
-  this.lastKey = null;
-}
-
-window.onload = function() {
-  var elm = document.getElementById('myTextarea');
-  elm.onfocus = handleFocus;
-  elm.onblur = handleBlur;
-  elm.onkeydown = handleKeyDown;
-};
-      
-/**/
-
+// ************************************************************************************************
+// 
 
 var reOpenBracket = /[\[\(\{]/;
 var reCloseBracket = /[\]\)\}]/;
@@ -352,6 +332,35 @@ function getExpressionOffset(command)
 
     return start + 1;
 }
+
+// ************************************************************************************************
+// CommandLine API
+
+var CommandLineAPI =
+{
+    $: function(id)
+    {
+        return Firebug.browser.document.getElementById(id)
+    },
+
+    $$: function(selector)
+    {
+        return Firebug.Selector(selector, Firebug.browser.document)
+    },    
+    dir: Firebug.Console.dir,
+
+    dirxml: Firebug.Console.dirxml
+}
+
+Firebug.CommandLine.API = {};
+var initializeCommandLineAPI = function initializeCommandLineAPI()
+{
+    for (var m in CommandLineAPI)
+        if (!Firebug.browser.window[m])
+            Firebug.CommandLine.API[m] = CommandLineAPI[m];
+}
+
+
 
 
 // ************************************************************************************************
