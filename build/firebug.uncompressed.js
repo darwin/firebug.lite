@@ -17175,7 +17175,7 @@ Firebug.Console2.injector =
             }
         };
         
-        var sandbox = new win.Function("arguments.callee.install(window.consolex={})");
+        var sandbox = new win.Function("arguments.callee.install(window.console={})");
         sandbox.install = installer;
         sandbox();
     },
@@ -18340,6 +18340,8 @@ var XMLHttpRequestWrapper = function(activeXObject)
     
     var logXHR = function() 
     {
+        if (typeof Firebug=="undefined") return;
+        
         var row = Firebug.Console.log(spy, null, "spy", Firebug.Spy.XHR);
         
         if (row)
@@ -21229,7 +21231,11 @@ var processStyleSheet = function(doc, styleSheet)
     if (styleSheet.restricted)
         return;
     
-    var rules = isIE ? styleSheet.rules : styleSheet.cssRules;
+    try {
+        var rules = isIE ? styleSheet.rules : styleSheet.cssRules;
+    } catch (ex) {
+        return;
+    }
     
     var ssid = StyleSheetCache(styleSheet);
     
